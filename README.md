@@ -19,7 +19,7 @@ This repository covers files that are modifications of, or replacements for, GPL
 * The autostart `.desktop` entry that launches the proprietary Touch Player application.
 * Our power-management shell scripts.
 
-Both are original works authored by Light-O-Rama. They run alongside the GPL/LGPL components covered here, but they are not modifications of them and do not link against them — so they fall outside GPL's source-disclosure requirement. (This is our own read of the license, not legal advice; verify against your own counsel if you're relying on this distinction.)
+Both are original works authored by Light-O-Rama. They run alongside the GPL/LGPL components covered here, but they are not modifications of them and do not link against them — so they fall outside GPL's source-disclosure requirement.
 
 ---
 
@@ -72,7 +72,7 @@ Files mirror their destination paths on the target device:
 | `src/plasma-mobile/components/mobileshell/qml/statusbar/StatusBar.qml` | LGPL-2.0-or-later | DataSource interval `60000` + `AlignToMinute` → `1000` to prevent DSI-1 flicker |
 | `src/plasma-mobile/components/mobileshell/shellutil.cpp` | GPL-2.0-or-later | `isSystem24HourFormat()`: (1) exact-match `"HH:mm:ss"` → `contains('H')` so any 24-hour `TimeFormat` in kdeglobals is recognised; (2) when `TimeFormat` is absent from kdeglobals, falls back to `QLocale::system().timeFormat()` (honours `LC_TIME`) instead of a hardcoded 24h default |
 | `src/plasma-mobile/components/mobileshell/qml/actiondrawer/LandscapeContentContainer.qml` | LGPL-2.0-or-later | Action drawer clock 24h branch `"h:mm"` → `"H:mm"` so Qt formats in 24-hour |
-| `etc/apt/sources.list.d/lor.list` | N/A (config) | Private APT repository for application packages; credentials are provisioned separately to `/etc/apt/auth.conf.d/`, not stored here |
+| `etc/apt/sources.list.d/lor.list` | N/A (config) | Private APT repository for application packages; contains no credentials |
 
 The four `plasma-mobile` source files exist to fix a DSI-1 screen flicker (the upstream clock redraws once a minute, leaving the compositor idle long enough to produce a visible artifact) and to make the 24-hour clock setting honour the system locale. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md) for the rebuild procedure.
 
@@ -95,9 +95,8 @@ cd LOR-Touch-Player
 # PARTUUID and regdomain that this repo's copy has had genericized.
 #   add: video=DSI-1:720x1280@60
 
-# Private APT repository definition
+# Private APT repository definition (no credentials included)
 sudo cp etc/apt/sources.list.d/lor.list /etc/apt/sources.list.d/
-# (repo credentials are provisioned separately to /etc/apt/auth.conf.d/)
 
 # Hardware watchdog
 sudo cp etc/systemd/system.conf /etc/systemd/system.conf
