@@ -1,0 +1,9 @@
+# Ignore hidden OS files
+.DS_Store
+Thumbs.db
+
+# Ignore local application or editor caches
+*.log
+*.tmp
+.vscode/
+.idea/

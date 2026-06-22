@@ -1,0 +1,1 @@
+deb [arch=arm64 signed-by=/etc/apt/keyrings/Light-O-Rama_public.asc] https://lor2.com/showtime/prod/apt-repo stable main

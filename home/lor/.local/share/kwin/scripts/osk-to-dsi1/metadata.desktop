@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=OSK to DSI-1
+Comment=Force on-screen keyboard to always appear on DSI-1
+Type=Service
+X-KDE-ServiceTypes=KWin/Script
+X-KDE-PluginInfo-Name=osk-to-dsi1
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=GPL
+X-Plasma-API=javascript
+X-Plasma-MainScript=code/main.js

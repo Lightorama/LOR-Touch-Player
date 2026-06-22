@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Keep MPV Visible
+Comment=Prevents mpv from being minimized or hidden by the shell
+Type=Service
+X-KDE-ServiceTypes=KWin/Script
+X-KDE-PluginInfo-Name=keep-mpv-visible
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=GPL
+X-Plasma-API=javascript
+X-Plasma-MainScript=code/main.js
