@@ -44,8 +44,9 @@ Files mirror their destination paths on the target device:
 * `etc/apt/sources.list.d/lor.list` — Private APT repository definition for our application packages.
 * `etc/systemd/system.conf` — Enables the hardware watchdog (`RuntimeWatchdogSec`).
 * `home/lor/.local/bin/maliit-dsi-fix.sh` — Forces the on-screen keyboard onto the DSI-1 panel instead of the HDMI output.
+* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, priority=1) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`; on DRM hotplug also sweeps all non-mpv windows back to DSI-1.
 * `home/lor/.local/share/kwin/scripts/keep-mpv-visible/` — KWin script preventing the video player window from being minimized.
-* `home/lor/.local/share/kwin/scripts/osk-to-dsi1/` — KWin script keeping non-video windows (so the on-screen keyboard) on the DSI-1 panel.
+* `home/lor/.local/share/kwin/scripts/osk-to-dsi1/` — KWin script that keeps all non-mpv windows on DSI-1 (including the on-screen keyboard and Touch Player UI).
 * `home/lor/.local/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/logout/` — Modified logout screen (overrides the stock Breeze Dark theme's logout dialog).
 * `home/lor/.local/share/plasma/plasmoids/org.kde.phone.homescreen.halcyon/` — Modified Halcyon homescreen plasmoid.
 * `home/lor/src/plasma-mobile/components/mobileshell/` — Source patches against plasma-mobile (tag v5.27.2). Not deployed directly; built into `libmobileshellplugin.so`. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md).
@@ -66,6 +67,7 @@ Files mirror their destination paths on the target device:
 | `osk-to-dsi1/contents/code/main.js` | N/A — original LOR script | Custom KWin script, self-licensed GPL (see `metadata.desktop`) |
 | `osk-to-dsi1/metadata.desktop` | N/A — original LOR script | Script metadata |
 | `.local/bin/maliit-dsi-fix.sh` | N/A — original LOR script | Briefly disables the HDMI-A-1 output at session start so `maliit-keyboard` picks DSI-1 as Qt's primary screen |
+| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, and priority=1 in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`); on DRM hotplug also sweeps all non-mpv windows back to DSI-1 via a one-shot KWin script |
 | `boot/firmware/cmdline.txt` | N/A (config) | Adds `video=DSI-1:720x1280@60` for display configuration (`PARTUUID` and regdomain genericized in this copy) |
 | `etc/systemd/system.conf` | LGPL-2.1-or-later (systemd) | Sets `RuntimeWatchdogSec=10` for hardware watchdog support |
 | `src/plasma-mobile/components/mobileshell/qml/statusbar/ClockText.qml` | GPL-2.0-or-later | Clock format `h:mm` → `h:mm:ss` to prevent DSI-1 flicker; 24h branch `h:mm:ss` → `H:mm:ss` so Qt formats in 24-hour |
@@ -110,8 +112,11 @@ mkdir -p ~/.local/bin ~/.local/share/kwin/scripts \
 
 cp home/lor/.local/bin/maliit-dsi-fix.sh ~/.local/bin/
 chmod +x ~/.local/bin/maliit-dsi-fix.sh
-# This script needs to run once per session at login. The autostart entry that
-# triggers it is part of our application packaging and isn't included here.
+
+cp home/lor/.local/bin/kscreen-fix-priority.sh ~/.local/bin/
+chmod +x ~/.local/bin/kscreen-fix-priority.sh
+# Both scripts need to run once per session at login. The autostart entries that
+# trigger them are part of our application packaging and aren't included here.
 
 cp -r home/lor/.local/share/kwin/scripts/keep-mpv-visible ~/.local/share/kwin/scripts/
 cp -r home/lor/.local/share/kwin/scripts/osk-to-dsi1 ~/.local/share/kwin/scripts/

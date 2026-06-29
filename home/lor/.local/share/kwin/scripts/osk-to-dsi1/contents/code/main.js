@@ -1,28 +1,73 @@
-// Keep non-MPV windows on DSI-1 and warp cursor to DSI-1 so KWin's
-// activeOutput() returns DSI-1 when the OSK is triggered.
-// KWin places the OSK on activeOutput(), which follows the mouse cursor
-// position when the keyboard is shown.
+// Keep non-MPV windows on DSI-1. mpv is the only app allowed on HDMI-A-1.
+// Also ensures the OSK appears on DSI-1 since KWin places it on the active output.
+//
+// DSI-1 is identified by name via workspace.supportInformation(), which maps
+// "Screen N: Name: DSI-1" reliably regardless of screen index or geometry.
 
-var DSI1_CENTER = Qt.point(474, 266); // center of DSI-1 (948x533)
+function findDsi1Index() {
+    try {
+        var info = workspace.supportInformation();
+        var m = info.match(/Screen (\d+):\n-+\nName: DSI-1/);
+        if (m) return parseInt(m[1]);
+        print("[osk-dsi1] DSI-1 not found in supportInformation, falling back to x=0");
+    } catch (e) {
+        print("[osk-dsi1] findDsi1Index error: " + e);
+    }
+    // Fallback: first screen at x=0
+    for (var i = 0; i < workspace.numScreens; i++) {
+        try {
+            var geo = workspace.clientArea(KWin.ScreenArea, i, 1);
+            if (geo && geo.x === 0) return i;
+        } catch (e2) {}
+    }
+    return 0;
+}
 
 function enforceScreen(client) {
     if (!client || !client.normalWindow) return;
     if (String(client.resourceClass).toLowerCase() === "mpv") return;
 
-    print("[osk-dsi1] clientAdded: " + client.resourceClass + " screen=" + client.screen);
+    var dsi1 = findDsi1Index();
+    print("[osk-dsi1] clientAdded: " + client.resourceClass + " screen=" + client.screen + " dsi1=" + dsi1);
 
-    if (client.screen === 1) {
-        workspace.sendClientToScreen(client, 0);
-        print("[osk-dsi1] moved to DSI-1, cursor warp to " + DSI1_CENTER);
+    if (client.screen !== dsi1) {
+        workspace.sendClientToScreen(client, dsi1);
+        print("[osk-dsi1] moved " + client.resourceClass + " to DSI-1");
     }
 
-    // Re-check on any subsequent screen changes (e.g. drag to HDMI-A-1)
     client.screenChanged.connect(function() {
-        if (client.screen === 1 &&
-            String(client.resourceClass).toLowerCase() !== "mpv") {
-            workspace.sendClientToScreen(client, 0);
+        if (String(client.resourceClass).toLowerCase() === "mpv") return;
+        var dsi1 = findDsi1Index();
+        if (client.screen !== dsi1) {
+            workspace.sendClientToScreen(client, dsi1);
+            print("[osk-dsi1] screenChanged: moved " + client.resourceClass + " back to DSI-1");
         }
     });
 }
 
+function sweepAllClients() {
+    var dsi1 = findDsi1Index();
+    print("[osk-dsi1] sweep: dsi1 index=" + dsi1);
+    var clients = workspace.clientList();
+    for (var i = 0; i < clients.length; i++) {
+        var c = clients[i];
+        if (!c || !c.normalWindow) continue;
+        if (String(c.resourceClass).toLowerCase() === "mpv") continue;
+        if (c.screen !== dsi1) {
+            workspace.sendClientToScreen(c, dsi1);
+            print("[osk-dsi1] sweep: moved " + c.resourceClass + " to DSI-1");
+        }
+    }
+}
+
+try {
+    workspace.numberScreensChanged.connect(function(count) {
+        print("[osk-dsi1] screen count changed to " + count + ", sweeping clients");
+        sweepAllClients();
+    });
+} catch (e) {
+    print("[osk-dsi1] numberScreensChanged unavailable: " + e);
+}
+
+sweepAllClients();
 workspace.clientAdded.connect(enforceScreen);
