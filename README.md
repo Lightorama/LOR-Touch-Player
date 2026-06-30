@@ -44,12 +44,13 @@ Files mirror their destination paths on the target device:
 * `etc/apt/sources.list.d/lor.list` — Private APT repository definition for our application packages.
 * `etc/systemd/system.conf` — Enables the hardware watchdog (`RuntimeWatchdogSec`).
 * `home/lor/.local/bin/maliit-dsi-fix.sh` — Forces the on-screen keyboard onto the DSI-1 panel instead of the HDMI output.
-* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, priority=1) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`; on DRM hotplug also sweeps all non-mpv windows back to DSI-1.
+* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, position=0,0, priority=1) and HDMI-A-1 position (948,0) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`; on DRM hotplug also sweeps all non-mpv windows back to DSI-1.
 * `home/lor/.local/share/kwin/scripts/keep-mpv-visible/` — KWin script preventing the video player window from being minimized.
 * `home/lor/.local/share/kwin/scripts/osk-to-dsi1/` — KWin script that keeps all non-mpv windows on DSI-1 (including the on-screen keyboard and Touch Player UI).
 * `home/lor/.local/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/logout/` — Modified logout screen (overrides the stock Breeze Dark theme's logout dialog).
 * `home/lor/.local/share/plasma/plasmoids/org.kde.phone.homescreen.halcyon/` — Modified Halcyon homescreen plasmoid.
 * `home/lor/src/plasma-mobile/components/mobileshell/` — Source patches against plasma-mobile (tag v5.27.2). Not deployed directly; built into `libmobileshellplugin.so`. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md).
+* `home/lor/src/rpi-kernel-patches/dwc-build/dwc-i2s.c` — Patched DWC I2S kernel driver. Not deployed directly; built into `designware_i2s.ko`. See [`build-designware-i2s.md`](build-designware-i2s.md).
 
 ---
 
@@ -67,7 +68,7 @@ Files mirror their destination paths on the target device:
 | `osk-to-dsi1/contents/code/main.js` | N/A — original LOR script | Custom KWin script, self-licensed GPL (see `metadata.desktop`) |
 | `osk-to-dsi1/metadata.desktop` | N/A — original LOR script | Script metadata |
 | `.local/bin/maliit-dsi-fix.sh` | N/A — original LOR script | Briefly disables the HDMI-A-1 output at session start so `maliit-keyboard` picks DSI-1 as Qt's primary screen |
-| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, and priority=1 in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`); on DRM hotplug also sweeps all non-mpv windows back to DSI-1 via a one-shot KWin script |
+| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, position=0,0, and priority=1, and HDMI-A-1 position=948,0, in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`); on DRM hotplug also sweeps all non-mpv windows back to DSI-1 via a one-shot KWin script |
 | `boot/firmware/cmdline.txt` | N/A (config) | Adds `video=DSI-1:720x1280@60` for display configuration (`PARTUUID` and regdomain genericized in this copy) |
 | `etc/systemd/system.conf` | LGPL-2.1-or-later (systemd) | Sets `RuntimeWatchdogSec=10` for hardware watchdog support |
 | `src/plasma-mobile/components/mobileshell/qml/statusbar/ClockText.qml` | GPL-2.0-or-later | Clock format `h:mm` → `h:mm:ss` to prevent DSI-1 flicker; 24h branch `h:mm:ss` → `H:mm:ss` so Qt formats in 24-hour |
@@ -75,8 +76,28 @@ Files mirror their destination paths on the target device:
 | `src/plasma-mobile/components/mobileshell/shellutil.cpp` | GPL-2.0-or-later | `isSystem24HourFormat()`: (1) exact-match `"HH:mm:ss"` → `contains('H')` so any 24-hour `TimeFormat` in kdeglobals is recognised; (2) when `TimeFormat` is absent from kdeglobals, falls back to `QLocale::system().timeFormat()` (honours `LC_TIME`) instead of a hardcoded 24h default |
 | `src/plasma-mobile/components/mobileshell/qml/actiondrawer/LandscapeContentContainer.qml` | LGPL-2.0-or-later | Action drawer clock 24h branch `"h:mm"` → `"H:mm"` so Qt formats in 24-hour |
 | `etc/apt/sources.list.d/lor.list` | N/A (config) | Private APT repository for application packages; contains no credentials |
+| `src/rpi-kernel-patches/dwc-build/dwc-i2s.c` | GPL-2.0-or-later | `dw_i2s_startup()`: adds `SNDRV_PCM_INFO_INTERLEAVED` to `runtime->hw.info` so the PCM access constraint mask is non-zero; fixes `Playback open error: Invalid argument` on HiFiBerry DAC (PCM5102A) via RP1 I2S |
 
 The four `plasma-mobile` source files exist to fix a DSI-1 screen flicker (the upstream clock redraws once a minute, leaving the compositor idle long enough to produce a visible artifact) and to make the 24-hour clock setting honour the system locale. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md) for the rebuild procedure.
+
+---
+
+## KDE Session Configuration
+
+One KDE daemon setting must be applied to the user session. It does not correspond to a file in this repository but is required for correct operation.
+
+### kded kscreen module disabled
+
+Plasma's `kded5` daemon includes a `kscreen` module that watches for display hotplug events. When an HDMI display connects that has no saved kscreen configuration, the module presents a "Switch to external screen" dialog offering layout choices. On this device that dialog is unwanted: the display geometry is fixed by design (DSI-1 always primary at position 0,0; any HDMI display always secondary at 948,0), and `kscreen-fix-priority.sh` already handles all display configuration changes automatically via udev.
+
+The kscreen kded module is therefore disabled so it neither interferes with our udev-driven display management nor triggers the OSD prompt:
+
+```bash
+kwriteconfig5 --file kded5rc --group "Module-kscreen" --key autoload false
+qdbus org.kde.kded5 /kded unloadModule kscreen   # takes effect immediately in running session
+```
+
+This writes `[Module-kscreen] autoload=false` to `~/.config/kded5rc` and persists across reboots. Everything the kscreen kded module would have done — applying saved display configs and placing new HDMI outputs — is handled by `kscreen-fix-priority.sh` instead.
 
 ---
 
@@ -129,9 +150,25 @@ cp -r home/lor/.local/share/plasma/plasmoids/org.kde.phone.homescreen.halcyon \
       ~/.local/share/plasma/plasmoids/
 ```
 
-### 4. Rebuild the patched Plasma Mobile shell plugin
+### 4. Disable the kded kscreen module
+
+```bash
+kwriteconfig5 --file kded5rc --group "Module-kscreen" --key autoload false
+```
+
+If KDE is already running, also unload it from the live session:
+
+```bash
+qdbus org.kde.kded5 /kded unloadModule kscreen
+```
+
+### 5. Rebuild the patched Plasma Mobile shell plugin
 
 The files under `home/lor/src/plasma-mobile/` are source patches, not deployable files as-is. Build and install `libmobileshellplugin.so` per [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md).
+
+### 6. Rebuild the patched DWC I2S kernel module
+
+The file under `home/lor/src/rpi-kernel-patches/dwc-build/` is a source patch, not a deployable file as-is. Build and install `designware_i2s.ko` per [`build-designware-i2s.md`](build-designware-i2s.md).
 
 ---
 
