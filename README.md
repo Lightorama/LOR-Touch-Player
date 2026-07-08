@@ -44,13 +44,15 @@ Files mirror their destination paths on the target device:
 * `etc/apt/sources.list.d/lor.list` — Private APT repository definition for our application packages.
 * `etc/systemd/system.conf` — Enables the hardware watchdog (`RuntimeWatchdogSec`).
 * `home/lor/.local/bin/maliit-dsi-fix.sh` — Forces the on-screen keyboard onto the DSI-1 panel instead of the HDMI output.
-* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, position=0,0, priority=1) and HDMI-A-1 position (948,0) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`; on DRM hotplug also sweeps all non-mpv windows back to DSI-1.
+* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, position=0,0, priority=1) and HDMI-A-1 position (948,0) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`; on DRM hotplug and on every kscreen config rewrite (including the portrait↔landscape rotation triggered by the orientation sensor) it also sweeps all non-mpv windows back to DSI-1 by output name.
+* `home/lor/.config/kwinrulesrc` — Window placement rules. Deliberately contains only a generic "maximize all windows" rule; do **not** add rules that pin a window to a numeric `screen=` index — KWin's screen index-to-output mapping (which of DSI-1/HDMI-A-1 is "screen 0") is not stable across kscreen reconfigurations, and hardcoded-index rules previously caused Touch Player to strand on HDMI-A-1 after a rotation. Non-mpv window placement is instead handled dynamically, by output name, in `kscreen-fix-priority.sh` and `osk-to-dsi1`; mpv places itself on HDMI-A-1 by output name via its own `mpv.conf` (`screen-name`/`fs-screen-name`), which is unaffected by this file.
 * `home/lor/.local/share/kwin/scripts/keep-mpv-visible/` — KWin script preventing the video player window from being minimized.
 * `home/lor/.local/share/kwin/scripts/osk-to-dsi1/` — KWin script that keeps all non-mpv windows on DSI-1 (including the on-screen keyboard and Touch Player UI).
 * `home/lor/.local/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/logout/` — Modified logout screen (overrides the stock Breeze Dark theme's logout dialog).
 * `home/lor/.local/share/plasma/plasmoids/org.kde.phone.homescreen.halcyon/` — Modified Halcyon homescreen plasmoid.
 * `home/lor/src/plasma-mobile/components/mobileshell/` — Source patches against plasma-mobile (tag v5.27.2). Not deployed directly; built into `libmobileshellplugin.so`. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md).
 * `home/lor/src/rpi-kernel-patches/dwc-build/dwc-i2s.c` — Patched DWC I2S kernel driver. Not deployed directly; built into `designware_i2s.ko`. See [`build-designware-i2s.md`](build-designware-i2s.md).
+* `home/lor/src/kscreen/kded/generator.cpp` — Patched kscreen kded plugin source. Not deployed directly; built into `kscreen.so`. See [`build-libkscreen.md`](build-libkscreen.md).
 
 ---
 
@@ -68,7 +70,8 @@ Files mirror their destination paths on the target device:
 | `osk-to-dsi1/contents/code/main.js` | N/A — original LOR script | Custom KWin script, self-licensed GPL (see `metadata.desktop`) |
 | `osk-to-dsi1/metadata.desktop` | N/A — original LOR script | Script metadata |
 | `.local/bin/maliit-dsi-fix.sh` | N/A — original LOR script | Briefly disables the HDMI-A-1 output at session start so `maliit-keyboard` picks DSI-1 as Qt's primary screen |
-| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, position=0,0, and priority=1, and HDMI-A-1 position=948,0, in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`); on DRM hotplug also sweeps all non-mpv windows back to DSI-1 via a one-shot KWin script |
+| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, position=0,0, and priority=1, and HDMI-A-1 position=948,0, in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`); on DRM hotplug and on every kscreen config rewrite also sweeps all non-mpv windows back to DSI-1 (by output name) via a one-shot KWin script |
+| `.config/kwinrulesrc` | N/A (config) | Generic "maximize all windows" rule only; hardcoded `screen=` index rules ("Force MPV to HDMI", "Force all windows to DSI-1") were removed because the screen index-to-output mapping isn't stable across kscreen reconfigurations and those rules stranded Touch Player on HDMI-A-1 after a rotation |
 | `boot/firmware/cmdline.txt` | N/A (config) | Adds `video=DSI-1:720x1280@60` for display configuration (`PARTUUID` and regdomain genericized in this copy) |
 | `etc/systemd/system.conf` | LGPL-2.1-or-later (systemd) | Sets `RuntimeWatchdogSec=10` for hardware watchdog support |
 | `src/plasma-mobile/components/mobileshell/qml/statusbar/ClockText.qml` | GPL-2.0-or-later | Clock format `h:mm` → `h:mm:ss` to prevent DSI-1 flicker; 24h branch `h:mm:ss` → `H:mm:ss` so Qt formats in 24-hour |
@@ -77,6 +80,7 @@ Files mirror their destination paths on the target device:
 | `src/plasma-mobile/components/mobileshell/qml/actiondrawer/LandscapeContentContainer.qml` | LGPL-2.0-or-later | Action drawer clock 24h branch `"h:mm"` → `"H:mm"` so Qt formats in 24-hour |
 | `etc/apt/sources.list.d/lor.list` | N/A (config) | Private APT repository for application packages; contains no credentials |
 | `src/rpi-kernel-patches/dwc-build/dwc-i2s.c` | GPL-2.0-or-later | `dw_i2s_startup()`: adds `SNDRV_PCM_INFO_INTERLEAVED` to `runtime->hw.info` so the PCM access constraint mask is non-zero; fixes `Playback open error: Invalid argument` on HiFiBerry DAC (PCM5102A) via RP1 I2S |
+| `src/kscreen/kded/generator.cpp` | GPL-2.0-or-later | `Generator::idealConfig()`: added an `embeddedOutput(connectedOutputs)` check (true when a `Panel`-type output like DSI-1 is connected) that routes to the `laptop(config)` placement path instead of `extendToRight()`; makes the built-in DSI-1 panel the default primary display on first boot instead of whichever output has the highest resolution |
 
 The four `plasma-mobile` source files exist to fix a DSI-1 screen flicker (the upstream clock redraws once a minute, leaving the compositor idle long enough to produce a visible artifact) and to make the 24-hour clock setting honour the system locale. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md) for the rebuild procedure.
 
@@ -148,6 +152,10 @@ cp -r home/lor/.local/share/plasma/look-and-feel/org.kde.breezedark.desktop \
 
 cp -r home/lor/.local/share/plasma/plasmoids/org.kde.phone.homescreen.halcyon \
       ~/.local/share/plasma/plasmoids/
+
+cp home/lor/.config/kwinrulesrc ~/.config/kwinrulesrc
+# Do not add rules with a numeric `screen=` index to this file — see the
+# repository structure notes above for why.
 ```
 
 ### 4. Disable the kded kscreen module
@@ -169,6 +177,10 @@ The files under `home/lor/src/plasma-mobile/` are source patches, not deployable
 ### 6. Rebuild the patched DWC I2S kernel module
 
 The file under `home/lor/src/rpi-kernel-patches/dwc-build/` is a source patch, not a deployable file as-is. Build and install `designware_i2s.ko` per [`build-designware-i2s.md`](build-designware-i2s.md).
+
+### 7. Rebuild the patched kscreen kded plugin
+
+The file under `home/lor/src/kscreen/kded/` is a source patch, not a deployable file as-is. Build and install `kscreen.so` per [`build-libkscreen.md`](build-libkscreen.md).
 
 ---
 
@@ -197,6 +209,7 @@ echo '{ "command": ["get_property", "volume"] }' > /tmp/LORMPV
    * **Raspberry Pi OS (Linux Kernel):** [Official Raspberry Pi Linux Kernel Repository](https://github.com/raspberrypi/linux)
    * **Raspberry Pi OS (Debian package sources):** [Debian Sources](https://sources.debian.org/), or via the device's `/etc/apt/sources.list`
    * **KDE Plasma Mobile:** [invent.kde.org/plasma/plasma-mobile](https://invent.kde.org/plasma/plasma-mobile) — our patches are based on tag `v5.27.2`
+   * **KDE kscreen:** [invent.kde.org/plasma/kscreen](https://invent.kde.org/plasma/kscreen) — our patch is based on the Debian `kscreen` source package version `4:5.27.5-2` (bookworm)
    * **mpv Media Player:** [mpv-player/mpv on GitHub](https://github.com/mpv-player/mpv)
    * **FTDI EEPROM Utility (libftdi):** [Intra2net libftdi](https://www.intra2net.com/en/developer/libftdi/)
 
