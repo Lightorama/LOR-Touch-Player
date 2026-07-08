@@ -18,8 +18,9 @@ This repository covers files that are modifications of, or replacements for, GPL
 
 * The autostart `.desktop` entry that launches the proprietary Touch Player application.
 * Our power-management shell scripts.
+* The `dsi1-early-scale.service` unit and script (see *KDE Session Configuration* below).
 
-Both are original works authored by Light-O-Rama. They run alongside the GPL/LGPL components covered here, but they are not modifications of them and do not link against them — so they fall outside GPL's source-disclosure requirement.
+These are original works authored by Light-O-Rama. They run alongside the GPL/LGPL components covered here, but they are not modifications of them and do not link against them — so they fall outside GPL's source-disclosure requirement.
 
 ---
 
@@ -44,7 +45,7 @@ Files mirror their destination paths on the target device:
 * `etc/apt/sources.list.d/lor.list` — Private APT repository definition for our application packages.
 * `etc/systemd/system.conf` — Enables the hardware watchdog (`RuntimeWatchdogSec`).
 * `home/lor/.local/bin/maliit-dsi-fix.sh` — Forces the on-screen keyboard onto the DSI-1 panel instead of the HDMI output.
-* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, position=0,0, priority=1) and HDMI-A-1 position (948,0) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`; on DRM hotplug and on every kscreen config rewrite (including the portrait↔landscape rotation triggered by the orientation sensor) it also sweeps all non-mpv windows back to DSI-1 by output name.
+* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, position=0,0, priority=1) and HDMI-A-1 position (948,0) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`. The live apply includes HDMI-A-1 only when that output is currently connected, and verifies the scale took effect by reading the output state back, retrying if it didn't stick (see *Boot-time DSI-1 rotation and scale* below for why). On DRM hotplug and on every kscreen config rewrite (including the portrait↔landscape rotation triggered by the orientation sensor) it also sweeps all non-mpv windows back to DSI-1 by output name.
 * `home/lor/.config/kwinrulesrc` — Window placement rules. Deliberately contains only a generic "maximize all windows" rule; do **not** add rules that pin a window to a numeric `screen=` index — KWin's screen index-to-output mapping (which of DSI-1/HDMI-A-1 is "screen 0") is not stable across kscreen reconfigurations, and hardcoded-index rules previously caused Touch Player to strand on HDMI-A-1 after a rotation. Non-mpv window placement is instead handled dynamically, by output name, in `kscreen-fix-priority.sh` and `osk-to-dsi1`; mpv places itself on HDMI-A-1 by output name via its own `mpv.conf` (`screen-name`/`fs-screen-name`), which is unaffected by this file.
 * `home/lor/.local/share/kwin/scripts/keep-mpv-visible/` — KWin script preventing the video player window from being minimized.
 * `home/lor/.local/share/kwin/scripts/osk-to-dsi1/` — KWin script that keeps all non-mpv windows on DSI-1 (including the on-screen keyboard and Touch Player UI).
@@ -70,7 +71,7 @@ Files mirror their destination paths on the target device:
 | `osk-to-dsi1/contents/code/main.js` | N/A — original LOR script | Custom KWin script, self-licensed GPL (see `metadata.desktop`) |
 | `osk-to-dsi1/metadata.desktop` | N/A — original LOR script | Script metadata |
 | `.local/bin/maliit-dsi-fix.sh` | N/A — original LOR script | Briefly disables the HDMI-A-1 output at session start so `maliit-keyboard` picks DSI-1 as Qt's primary screen |
-| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, position=0,0, and priority=1, and HDMI-A-1 position=948,0, in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`); on DRM hotplug and on every kscreen config rewrite also sweeps all non-mpv windows back to DSI-1 (by output name) via a one-shot KWin script |
+| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, position=0,0, and priority=1, and HDMI-A-1 position=948,0 (only when HDMI is connected), in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`, verified by readback with retry); on DRM hotplug and on every kscreen config rewrite also sweeps all non-mpv windows back to DSI-1 (by output name) via a one-shot KWin script |
 | `.config/kwinrulesrc` | N/A (config) | Generic "maximize all windows" rule only; hardcoded `screen=` index rules ("Force MPV to HDMI", "Force all windows to DSI-1") were removed because the screen index-to-output mapping isn't stable across kscreen reconfigurations and those rules stranded Touch Player on HDMI-A-1 after a rotation |
 | `boot/firmware/cmdline.txt` | N/A (config) | Adds `video=DSI-1:720x1280@60` for display configuration (`PARTUUID` and regdomain genericized in this copy) |
 | `etc/systemd/system.conf` | LGPL-2.1-or-later (systemd) | Sets `RuntimeWatchdogSec=10` for hardware watchdog support |
@@ -102,6 +103,17 @@ qdbus org.kde.kded5 /kded unloadModule kscreen   # takes effect immediately in r
 ```
 
 This writes `[Module-kscreen] autoload=false` to `~/.config/kded5rc` and persists across reboots. Everything the kscreen kded module would have done — applying saved display configs and placing new HDMI outputs — is handled by `kscreen-fix-priority.sh` instead.
+
+### Boot-time DSI-1 rotation and scale
+
+With the kscreen kded module disabled and no saved profiles under `~/.local/share/kscreen/`, nothing in stock Plasma applies the DSI-1 rotation or scale at session start — KWin brings the panel up unrotated at scale 1. A user systemd service, `dsi1-early-scale.service` (an original LOR script, not included in this repository for the same reason as the power-management scripts), runs after KWin starts but before `plasmashell` draws, and applies rotation=right, scale=1.35, the DSI-1 position, and — only when an HDMI display is connected — the HDMI-A-1 position. It then verifies the scale actually took effect by reading the output state back, retrying the apply a few times if needed. Applying these before the first shell paint eliminates the visible resize/tearing that occurred when the settings were applied a few seconds into the session.
+
+Rules to follow when maintaining this setup (`dsi1-early-scale.sh` and `kscreen-fix-priority.sh` both follow all of them):
+
+* This service is the **only** place the boot-time DSI-1 rotation/scale values live. Any change to the display layout (different scale, new panel geometry) must be made in `~/.local/bin/dsi1-early-scale.sh` — there is no kscreen profile to fall back on.
+* All output settings must be batched into a **single** `kscreen-doctor` invocation (one config apply, one modeset). Multiple back-to-back `kscreen-doctor` calls have crashed (core-dumped) on this hardware.
+* **Never name an output that isn't currently connected.** If any argument references a missing output (e.g. `output.HDMI-A-1.position.948,0` with no HDMI display attached), `kscreen-doctor` turns the **entire** apply into a silent no-op — it still exits 0 and echoes the requested config as if applied. This is why the scripts build the argument list dynamically from the currently listed outputs; a hardcoded list that included HDMI-A-1 used to leave the panel unscaled on every boot without a monitor attached.
+* **Never trust `kscreen-doctor` exit codes.** Beyond the false 0 above, a genuinely applied change can exit 134 (`kscreen-doctor` has a heap-corruption bug and frequently SIGABRTs *after* doing its work, including on plain `-o` queries). The only reliable check is reading the output state back — parse `kscreen-doctor -o` stdout (ignoring its exit code) and confirm the expected `Scale:` value, retrying the apply if it didn't stick.
 
 ---
 

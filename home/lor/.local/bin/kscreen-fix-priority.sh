@@ -65,13 +65,40 @@ print(f"Fixed DSI-1 in {path}", flush=True)
 PYEOF
 }
 
+# kscreen-doctor exit codes and messages cannot be trusted on this system
+# (verified 2026-07-08): naming a missing output (HDMI-A-1 detached) turns the
+# ENTIRE apply into a silent no-op that still exits 0 and prints the wanted
+# config, while a genuinely applied change can exit 134 (heap-corruption
+# SIGABRT after the apply). `-o` also often SIGABRTs AFTER printing correct
+# state. So: never name an output that isn't currently listed, and verify by
+# reading back stdout only, ignoring exit codes.
+dsi1_scale_ok() {
+    kscreen-doctor -o 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' |
+        grep 'DSI-1' | grep -q 'Scale: 1.35'
+}
+
+# One invocation = one atomic config apply (a single modeset). Back-to-back
+# kscreen-doctor calls have core-dumped on this system (see journal). The
+# HDMI-A-1 arg is included only when that output exists — see above. Read the
+# scale back after applying and retry until it verifiably holds.
 fix_live() {
     (
         flock -x 9
-        kscreen-doctor output.DSI-1.rotation.right 2>/dev/null && echo "Fixed live DSI-1 rotation" || true
-        kscreen-doctor output.DSI-1.scale.1.35 2>/dev/null && echo "Fixed live DSI-1 scale" || true
-        kscreen-doctor output.DSI-1.position.0,0 2>/dev/null && echo "Fixed live DSI-1 position" || true
-        kscreen-doctor output.HDMI-A-1.position.948,0 2>/dev/null && echo "Fixed live HDMI-A-1 position" || true
+        local i state args
+        for ((i = 1; i <= 5; i++)); do
+            state=$(kscreen-doctor -o 2>/dev/null)
+            args=(output.DSI-1.rotation.right output.DSI-1.scale.1.35
+                output.DSI-1.position.0,0)
+            [[ "$state" == *HDMI-A-1* ]] && args+=(output.HDMI-A-1.position.948,0)
+            kscreen-doctor "${args[@]}" 2>/dev/null
+            sleep 1
+            if dsi1_scale_ok; then
+                echo "Fixed live DSI-1 rotation/scale/position (verified, attempt $i, ${#args[@]} ops)"
+                return 0
+            fi
+        done
+        echo "DSI-1 scale 1.35 did NOT stick after 5 attempts"
+        return 1
     ) 9>"$LOCK_FILE"
 }
 
@@ -110,13 +137,33 @@ SWEEPEOF
     rm -f "$tmpfile"
 }
 
-# Apply rotation immediately at startup after kscreen settles, then sweep
-# windows back to DSI-1 in case the rotation/scale/position change (portrait
-# -> landscape) visually drifted any window onto HDMI-A-1. Touch this ready
-# file afterward so autostart apps (see touch-player-launch.sh) can wait for
-# the boot-time rotation to finish before appearing, instead of launching
-# during the portrait->landscape transition.
-(sleep 5 && fix_live && sleep 1 && sweep_to_dsi1; touch "$READY_FILE") &
+# dsi1-early-scale.service normally applies rotation/scale before plasmashell
+# first draws, so DSI-1 is usually already correct by the time this service
+# starts. In that case touch the ready file immediately so autostart apps
+# (see touch-player-launch.sh) can launch right away. Only when the check
+# fails (early-scale missed or state regressed) fall back to the original
+# wait-fix-sweep path, which also sweeps back windows that drifted onto
+# HDMI-A-1 during a live portrait->landscape flip. Judge by stdout only --
+# see the exit-code caveats above; an empty read means the backend isn't
+# answering yet, so poll briefly before deciding.
+(
+    boot_ok=""
+    for ((i = 0; i < 30; i++)); do
+        state=$(kscreen-doctor -o 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
+        if [[ -n "$state" ]]; then
+            if grep 'DSI-1' <<<"$state" | grep 'Scale: 1.35' | grep -q 'Rotation: 8'; then
+                boot_ok=1
+                echo "DSI-1 already rotated/scaled at boot; ready immediately"
+            fi
+            break
+        fi
+        sleep 0.1
+    done
+    if [[ -z "$boot_ok" ]]; then
+        sleep 5 && fix_live && sleep 1 && sweep_to_dsi1
+    fi
+    touch "$READY_FILE"
+) &
 
 # Watch kscreen config files for priority/rotation fixes, then re-apply live.
 # Rotation (portrait<->landscape) goes through this path, not DRM hotplug, and
