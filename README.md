@@ -19,6 +19,7 @@ This repository covers files that are modifications of, or replacements for, GPL
 * The autostart `.desktop` entry that launches the proprietary Touch Player application.
 * Our power-management shell scripts.
 * The `dsi1-early-scale.service` unit and script (see *KDE Session Configuration* below).
+* The `config_ftdi.service` unit, its `config_ftdi.sh` script, and the `TouchPlayer-RS485.conf` EEPROM template, which provision the onboard FTDI RS485 adapter. The script invokes the `ftdi_eeprom` utility as a separate process over its command-line interface; it does not link against `libftdi`.
 
 These are original works authored by Light-O-Rama. They run alongside the GPL/LGPL components covered here, but they are not modifications of them and do not link against them — so they fall outside GPL's source-disclosure requirement.
 
