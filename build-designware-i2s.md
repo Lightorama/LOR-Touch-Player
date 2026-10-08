@@ -1,4 +1,4 @@
-# Building and Installing designware_i2s.ko
+# Building and Installing designware_i2s.ko (lor-i2s-dkms)
 
 ## Purpose
 
@@ -25,91 +25,68 @@ and `snd_pcm_hw_constraint_mask(runtime, ACCESS, 0)` returns `-EINVAL`.
   rates/formats/channels and never clears `hw.info`, so the flag persists into the
   constraint check.
 
-The modified copy is in this repository at
-`home/lor/src/rpi-kernel-patches/dwc-build/dwc-i2s.c`.
+## Why DKMS
 
-The two companion files (`dwc-pcm.c` and `local.h`) are unmodified upstream sources
-fetched at build time; they are not tracked here.
+Earlier the patched module was built by hand and placed over the stock file with
+`dpkg-divert`. That only covers one kernel version: every `linux-image` upgrade installs
+a new, unpatched module under a new `/lib/modules/<version>/` path, and audio silently
+breaks again. The fix is now packaged as `lor-i2s-dkms`, and DKMS rebuilds the module
+automatically for every new kernel.
 
-## Prerequisites
+## Package layout
 
-```bash
-sudo apt install linux-headers-$(uname -r) xz-utils
-```
+The package source is in this repository at `home/lor/src/lor-i2s-dkms/`:
 
-The `linux-kbuild-*` package that provides the module build scripts is installed
-automatically as a dependency of the headers package.
+| Path | Purpose |
+|---|---|
+| `pkg/usr/src/lor-i2s-1.0.0/dwc-i2s.c` | **Patched** driver (the one-line change above) |
+| `pkg/usr/src/lor-i2s-1.0.0/dwc-pcm.c`, `local.h` | Unmodified upstream companion files, needed because the module is built out of tree and `CONFIG_SND_DESIGNWARE_PCM=y` on this platform |
+| `pkg/usr/src/lor-i2s-1.0.0/Makefile`, `dkms.conf` | Out-of-tree build of `designware_i2s.ko` (`dwc-i2s.o` + `dwc-pcm.o`), installed to `/lib/modules/<version>/updates/dkms/` |
+| `pkg/usr/share/dkms/modules_to_force_install/lor-i2s` | `lor-i2s_version-override`. The stock and patched modules have no `MODULE_VERSION`, so DKMS's version check sees them as equal and would otherwise skip the install. |
+| `pkg/DEBIAN/control`, `postinst`, `prerm` | Debian packaging: depends on `dkms` and `linux-headers-rpi-2712` |
+| `build.sh` | Builds `lor-i2s-dkms_<version>_all.deb` |
 
-## Build
+The module in `updates/dkms/` takes precedence over the stock one in `kernel/`, so the
+stock kernel files are not modified.
 
-```bash
-cd ~/src/rpi-kernel-patches/dwc-build
-
-# Fetch unmodified companion files from the RPi kernel tree
-curl -L -o dwc-pcm.c \
-  https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/sound/soc/dwc/dwc-pcm.c
-curl -L -o local.h \
-  https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/sound/soc/dwc/local.h
-
-# dwc-i2s.c is our patched copy (already present)
-make
-```
-
-The `Makefile` in that directory builds against `/lib/modules/$(uname -r)/build` and
-includes both `dwc-i2s.o` and `dwc-pcm.o` (required because `CONFIG_SND_DESIGNWARE_PCM=y`
-on this platform).
-
-## Install
-
-On first install, protect the module from being overwritten by `apt upgrade` using
-`dpkg-divert`:
+## Build and install
 
 ```bash
-MODPATH=/lib/modules/$(uname -r)/kernel/sound/soc/dwc/designware_i2s.ko.xz
-
-sudo dpkg-divert --add --local --rename --divert "${MODPATH}.distrib" "$MODPATH"
+cd home/lor/src/lor-i2s-dkms
+./build.sh
+sudo apt install ./lor-i2s-dkms_1.0.0_all.deb
 ```
 
-Then install the patched module:
+`apt` pulls in `dkms`, the matching kernel headers, and the compiler if they're missing.
+On install, DKMS builds and installs the module for the running kernel. The postinst then:
+
+- removes any older hand-installed `dpkg-divert` of
+  `kernel/sound/soc/dwc/designware_i2s.ko.xz` and restores the stock file;
+- reloads the driver if the sound card is idle, otherwise the patched module is loaded at
+  the next reboot.
+
+Check the result:
 
 ```bash
-xz -k -f ~/src/rpi-kernel-patches/dwc-build/designware_i2s.ko
-sudo cp ~/src/rpi-kernel-patches/dwc-build/designware_i2s.ko.xz "$MODPATH"
-sudo depmod -a
+dkms status                        # lor-i2s/1.0.0, <kernel>, aarch64: installed
+modinfo -n designware_i2s          # .../updates/dkms/designware_i2s.ko.xz
+aplay -D plughw:CARD=sndrpihifiberry,DEV=0 /usr/share/sounds/alsa/Front_Center.wav
 ```
 
-Reload the module stack without rebooting:
+## Kernel upgrades
 
-```bash
-sudo rmmod snd_soc_rpi_simple_soundcard snd_soc_pcm5102a designware_i2s
-sudo modprobe designware_i2s
-sudo modprobe snd_soc_pcm5102a
-sudo modprobe snd_soc_rpi_simple_soundcard
-```
+Nothing to do. Installing a new kernel or its headers triggers
+`/etc/kernel/postinst.d/dkms` / `/etc/kernel/header_postinst.d/dkms`, which rebuilds the
+module. If a future kernel changes the driver's internal API, the build fails (see
+`/var/lib/dkms/lor-i2s/1.0.0/<kernel>/aarch64/log/make.log`), the stock driver is used, and
+the bug returns. In that case refresh the three source files from the matching
+`raspberrypi/linux` branch, re-apply the one-line change, and bump the package version.
 
-Or simply reboot.
-
-## After a linux-image package upgrade
-
-The kernel module path changes with each kernel version. On upgrade:
-
-1. Rebuild against the new headers:
-   ```bash
-   cd ~/src/rpi-kernel-patches/dwc-build
-   make clean
-   make
-   ```
-
-2. Set up `dpkg-divert` for the new kernel version's path:
-   ```bash
-   MODPATH=/lib/modules/$(uname -r)/kernel/sound/soc/dwc/designware_i2s.ko.xz
-   sudo dpkg-divert --add --local --rename --divert "${MODPATH}.distrib" "$MODPATH"
-   ```
-
-3. Install and reload as above.
+Removing the package (`sudo apt remove lor-i2s-dkms`) removes the DKMS module and
+restores the stock (unpatched) driver.
 
 ## Upstream source
 
-`sound/soc/dwc/dwc-i2s.c` is from the Raspberry Pi Linux kernel tree, branch
-`rpi-6.12.y`, licensed GPL-2.0-or-later. The SPDX header in the modified file is
-unchanged from upstream.
+`sound/soc/dwc/dwc-i2s.c`, `dwc-pcm.c` and `local.h` are from the Raspberry Pi Linux kernel
+tree, branch `rpi-6.12.y`, licensed GPL-2.0-or-later. The SPDX headers are unchanged from
+upstream.

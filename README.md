@@ -18,7 +18,7 @@ This repository covers files that are modifications of, or replacements for, GPL
 
 * The autostart `.desktop` entry that launches the proprietary Touch Player application.
 * Our power-management shell scripts.
-* The `dsi1-early-scale.service` unit and script (see *KDE Session Configuration* below).
+* The `dsi1-early-scale.service` unit and script (see *KDE Session Configuration* below), and the `lor-display-set-scale` command and Debian packaging of the `lor-display` package that installs them alongside `kscreen-fix-priority.sh`.
 * The `config_ftdi.service` unit, its `config_ftdi.sh` script, and the `TouchPlayer-RS485.conf` EEPROM template, which provision the onboard FTDI RS485 adapter. The script invokes the `ftdi_eeprom` utility as a separate process over its command-line interface; it does not link against `libftdi`.
 
 These are original works authored by Light-O-Rama. They run alongside the GPL/LGPL components covered here, but they are not modifications of them and do not link against them — so they fall outside GPL's source-disclosure requirement.
@@ -46,14 +46,15 @@ Files mirror their destination paths on the target device:
 * `etc/apt/sources.list.d/lor.list` — Private APT repository definition for our application packages.
 * `etc/systemd/system.conf` — Enables the hardware watchdog (`RuntimeWatchdogSec`).
 * `home/lor/.local/bin/maliit-dsi-fix.sh` — Forces the on-screen keyboard onto the DSI-1 panel instead of the HDMI output.
-* `home/lor/.local/bin/kscreen-fix-priority.sh` — Enforces DSI-1 display settings (rotation=right, scale=1.35, position=0,0, priority=1) and HDMI-A-1 position (948,0) in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`. The live apply includes HDMI-A-1 only when that output is currently connected, and verifies the scale took effect by reading the output state back, retrying if it didn't stick (see *Boot-time DSI-1 rotation and scale* below for why). On DRM hotplug and on every kscreen config rewrite (including the portrait↔landscape rotation triggered by the orientation sensor) it also sweeps all non-mpv windows back to DSI-1 by output name.
+* `usr/lib/lor-display/kscreen-fix-priority.sh` — Installed by our `lor-display` package; `~/.local/bin/kscreen-fix-priority.sh` is a symlink to it. Enforces DSI-1 display settings (rotation=right, the per-unit scale, position=0,0, priority=1) and the HDMI-A-1 position in kscreen config files on every write (via `inotifywait`) and live via `kscreen-doctor`. The live apply includes HDMI-A-1 only when that output is currently connected, and verifies the scale took effect by reading the output state back, retrying if it didn't stick (see *Boot-time DSI-1 rotation and scale* below for why). On DRM hotplug and on every kscreen config rewrite (including the portrait↔landscape rotation triggered by the orientation sensor) it also sweeps all non-mpv windows back to DSI-1 by output name.
+* `usr/lib/lor-display/lor-display-common.sh` — Shared helpers sourced by `kscreen-fix-priority.sh`. Reads the per-unit DSI-1 scale from `~/.config/lor-display.conf` (`SCALE=`, 1.0–1.75; default 1.35 if the file is missing or invalid) and computes the HDMI-A-1 x-position as DSI-1's logical width, `round(1280 / SCALE)` (1.35 → 948, 1.5 → 853, 1.75 → 731). Also keeps kwinrc `[Xwayland] Scale` in sync.
 * `home/lor/.config/kwinrulesrc` — Window placement rules. Deliberately contains only a generic "maximize all windows" rule; do **not** add rules that pin a window to a numeric `screen=` index — KWin's screen index-to-output mapping (which of DSI-1/HDMI-A-1 is "screen 0") is not stable across kscreen reconfigurations, and hardcoded-index rules previously caused Touch Player to strand on HDMI-A-1 after a rotation. Non-mpv window placement is instead handled dynamically, by output name, in `kscreen-fix-priority.sh` and `osk-to-dsi1`; mpv places itself on HDMI-A-1 by output name via its own `mpv.conf` (`screen-name`/`fs-screen-name`), which is unaffected by this file.
 * `home/lor/.local/share/kwin/scripts/keep-mpv-visible/` — KWin script preventing the video player window from being minimized.
 * `home/lor/.local/share/kwin/scripts/osk-to-dsi1/` — KWin script that keeps all non-mpv windows on DSI-1 (including the on-screen keyboard and Touch Player UI).
 * `home/lor/.local/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/logout/` — Modified logout screen (overrides the stock Breeze Dark theme's logout dialog).
 * `home/lor/.local/share/plasma/plasmoids/org.kde.phone.homescreen.halcyon/` — Modified Halcyon homescreen plasmoid.
 * `home/lor/src/plasma-mobile/components/mobileshell/` — Source patches against plasma-mobile (tag v5.27.2). Not deployed directly; built into `libmobileshellplugin.so`. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md).
-* `home/lor/src/rpi-kernel-patches/dwc-build/dwc-i2s.c` — Patched DWC I2S kernel driver. Not deployed directly; built into `designware_i2s.ko`. See [`build-designware-i2s.md`](build-designware-i2s.md).
+* `home/lor/src/lor-i2s-dkms/` — Source of the `lor-i2s-dkms` Debian package: the patched DWC I2S kernel driver (`pkg/usr/src/lor-i2s-1.0.0/dwc-i2s.c`) with its unmodified upstream companion files and DKMS build files. DKMS builds it into `designware_i2s.ko` on the device and rebuilds it for every new kernel. See [`build-designware-i2s.md`](build-designware-i2s.md).
 * `home/lor/src/kscreen/kded/generator.cpp` — Patched kscreen kded plugin source. Not deployed directly; built into `kscreen.so`. See [`build-libkscreen.md`](build-libkscreen.md).
 
 ---
@@ -72,7 +73,8 @@ Files mirror their destination paths on the target device:
 | `osk-to-dsi1/contents/code/main.js` | N/A — original LOR script | Custom KWin script, self-licensed GPL (see `metadata.desktop`) |
 | `osk-to-dsi1/metadata.desktop` | N/A — original LOR script | Script metadata |
 | `.local/bin/maliit-dsi-fix.sh` | N/A — original LOR script | Briefly disables the HDMI-A-1 output at session start so `maliit-keyboard` picks DSI-1 as Qt's primary screen |
-| `.local/bin/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, scale=1.35, position=0,0, and priority=1, and HDMI-A-1 position=948,0 (only when HDMI is connected), in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`, verified by readback with retry); on DRM hotplug and on every kscreen config rewrite also sweeps all non-mpv windows back to DSI-1 (by output name) via a one-shot KWin script |
+| `usr/lib/lor-display/kscreen-fix-priority.sh` | N/A — original LOR script | Enforces DSI-1 rotation=right, the per-unit scale (default 1.35), position=0,0, and priority=1, and the HDMI-A-1 position (948,0 at 1.35; only when HDMI is connected), in kscreen config files (via `inotifywait`) and live (via `kscreen-doctor`, verified by readback with retry); on DRM hotplug and on every kscreen config rewrite also sweeps all non-mpv windows back to DSI-1 (by output name) via a one-shot KWin script |
+| `usr/lib/lor-display/lor-display-common.sh` | N/A — original LOR script | Reads and validates the per-unit DSI-1 scale; computes the HDMI-A-1 position; syncs kwinrc `[Xwayland] Scale` |
 | `.config/kwinrulesrc` | N/A (config) | Generic "maximize all windows" rule only; hardcoded `screen=` index rules ("Force MPV to HDMI", "Force all windows to DSI-1") were removed because the screen index-to-output mapping isn't stable across kscreen reconfigurations and those rules stranded Touch Player on HDMI-A-1 after a rotation |
 | `boot/firmware/cmdline.txt` | N/A (config) | Adds `video=DSI-1:720x1280@60` for display configuration (`PARTUUID` and regdomain genericized in this copy) |
 | `etc/systemd/system.conf` | LGPL-2.1-or-later (systemd) | Sets `RuntimeWatchdogSec=10` for hardware watchdog support |
@@ -81,7 +83,9 @@ Files mirror their destination paths on the target device:
 | `src/plasma-mobile/components/mobileshell/shellutil.cpp` | GPL-2.0-or-later | `isSystem24HourFormat()`: (1) exact-match `"HH:mm:ss"` → `contains('H')` so any 24-hour `TimeFormat` in kdeglobals is recognised; (2) when `TimeFormat` is absent from kdeglobals, falls back to `QLocale::system().timeFormat()` (honours `LC_TIME`) instead of a hardcoded 24h default |
 | `src/plasma-mobile/components/mobileshell/qml/actiondrawer/LandscapeContentContainer.qml` | LGPL-2.0-or-later | Action drawer clock 24h branch `"h:mm"` → `"H:mm"` so Qt formats in 24-hour |
 | `etc/apt/sources.list.d/lor.list` | N/A (config) | Private APT repository for application packages; contains no credentials |
-| `src/rpi-kernel-patches/dwc-build/dwc-i2s.c` | GPL-2.0-or-later | `dw_i2s_startup()`: adds `SNDRV_PCM_INFO_INTERLEAVED` to `runtime->hw.info` so the PCM access constraint mask is non-zero; fixes `Playback open error: Invalid argument` on HiFiBerry DAC (PCM5102A) via RP1 I2S |
+| `src/lor-i2s-dkms/pkg/usr/src/lor-i2s-1.0.0/dwc-i2s.c` | GPL-2.0-or-later | `dw_i2s_startup()`: adds `SNDRV_PCM_INFO_INTERLEAVED` to `runtime->hw.info` so the PCM access constraint mask is non-zero; fixes `Playback open error: Invalid argument` on HiFiBerry DAC (PCM5102A) via RP1 I2S |
+| `src/lor-i2s-dkms/pkg/usr/src/lor-i2s-1.0.0/dwc-pcm.c`, `local.h` | GPL-2.0-or-later | Unmodified; included because the out-of-tree DKMS build of `designware_i2s.ko` needs them |
+| `src/lor-i2s-dkms/` (Makefile, dkms.conf, DEBIAN/, build.sh) | N/A — original LOR packaging | Builds and installs the patched module with DKMS so it survives kernel upgrades; removes older hand-installed `dpkg-divert` copies |
 | `src/kscreen/kded/generator.cpp` | GPL-2.0-or-later | `Generator::idealConfig()`: added an `embeddedOutput(connectedOutputs)` check (true when a `Panel`-type output like DSI-1 is connected) that routes to the `laptop(config)` placement path instead of `extendToRight()`; makes the built-in DSI-1 panel the default primary display on first boot instead of whichever output has the highest resolution |
 
 The four `plasma-mobile` source files exist to fix a DSI-1 screen flicker (the upstream clock redraws once a minute, leaving the compositor idle long enough to produce a visible artifact) and to make the 24-hour clock setting honour the system locale. See [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md) for the rebuild procedure.
@@ -94,7 +98,7 @@ One KDE daemon setting must be applied to the user session. It does not correspo
 
 ### kded kscreen module disabled
 
-Plasma's `kded5` daemon includes a `kscreen` module that watches for display hotplug events. When an HDMI display connects that has no saved kscreen configuration, the module presents a "Switch to external screen" dialog offering layout choices. On this device that dialog is unwanted: the display geometry is fixed by design (DSI-1 always primary at position 0,0; any HDMI display always secondary at 948,0), and `kscreen-fix-priority.sh` already handles all display configuration changes automatically via udev.
+Plasma's `kded5` daemon includes a `kscreen` module that watches for display hotplug events. When an HDMI display connects that has no saved kscreen configuration, the module presents a "Switch to external screen" dialog offering layout choices. On this device that dialog is unwanted: the display geometry is fixed by design (DSI-1 always primary at position 0,0; any HDMI display always secondary, directly to its right — 948,0 at the default scale), and `kscreen-fix-priority.sh` already handles all display configuration changes automatically via udev.
 
 The kscreen kded module is therefore disabled so it neither interferes with our udev-driven display management nor triggers the OSD prompt:
 
@@ -107,11 +111,11 @@ This writes `[Module-kscreen] autoload=false` to `~/.config/kded5rc` and persist
 
 ### Boot-time DSI-1 rotation and scale
 
-With the kscreen kded module disabled and no saved profiles under `~/.local/share/kscreen/`, nothing in stock Plasma applies the DSI-1 rotation or scale at session start — KWin brings the panel up unrotated at scale 1. A user systemd service, `dsi1-early-scale.service` (an original LOR script, not included in this repository for the same reason as the power-management scripts), runs after KWin starts but before `plasmashell` draws, and applies rotation=right, scale=1.35, the DSI-1 position, and — only when an HDMI display is connected — the HDMI-A-1 position. It then verifies the scale actually took effect by reading the output state back, retrying the apply a few times if needed. Applying these before the first shell paint eliminates the visible resize/tearing that occurred when the settings were applied a few seconds into the session.
+With the kscreen kded module disabled and no saved profiles under `~/.local/share/kscreen/`, nothing in stock Plasma applies the DSI-1 rotation or scale at session start — KWin brings the panel up unrotated at scale 1. A user systemd service, `dsi1-early-scale.service` (an original LOR script, not included in this repository for the same reason as the power-management scripts), runs after KWin starts but before `plasmashell` draws, and applies rotation=right, the per-unit scale (default 1.35, see `lor-display-common.sh`), the DSI-1 position, and — only when an HDMI display is connected — the HDMI-A-1 position. It then verifies the scale actually took effect by reading the output state back, retrying the apply a few times if needed. Applying these before the first shell paint eliminates the visible resize/tearing that occurred when the settings were applied a few seconds into the session.
 
 Rules to follow when maintaining this setup (`dsi1-early-scale.sh` and `kscreen-fix-priority.sh` both follow all of them):
 
-* This service is the **only** place the boot-time DSI-1 rotation/scale values live. Any change to the display layout (different scale, new panel geometry) must be made in `~/.local/bin/dsi1-early-scale.sh` — there is no kscreen profile to fall back on.
+* The DSI-1 scale is a **per-unit setting** in `~/.config/lor-display.conf`, read by both scripts through `lor-display-common.sh`; it takes effect at the next boot. There is no kscreen profile to fall back on, so any other change to the display layout (new panel geometry) must be made in the `lor-display` scripts.
 * All output settings must be batched into a **single** `kscreen-doctor` invocation (one config apply, one modeset). Multiple back-to-back `kscreen-doctor` calls have crashed (core-dumped) on this hardware.
 * **Never name an output that isn't currently connected.** If any argument references a missing output (e.g. `output.HDMI-A-1.position.948,0` with no HDMI display attached), `kscreen-doctor` turns the **entire** apply into a silent no-op — it still exits 0 and echoes the requested config as if applied. This is why the scripts build the argument list dynamically from the currently listed outputs; a hardcoded list that included HDMI-A-1 used to leave the panel unscaled on every boot without a monitor attached.
 * **Never trust `kscreen-doctor` exit codes.** Beyond the false 0 above, a genuinely applied change can exit 134 (`kscreen-doctor` has a heap-corruption bug and frequently SIGABRTs *after* doing its work, including on plain `-o` queries). The only reliable check is reading the output state back — parse `kscreen-doctor -o` stdout (ignoring its exit code) and confirm the expected `Scale:` value, retrying the apply if it didn't stick.
@@ -151,8 +155,13 @@ mkdir -p ~/.local/bin ~/.local/share/kwin/scripts \
 cp home/lor/.local/bin/maliit-dsi-fix.sh ~/.local/bin/
 chmod +x ~/.local/bin/maliit-dsi-fix.sh
 
-cp home/lor/.local/bin/kscreen-fix-priority.sh ~/.local/bin/
-chmod +x ~/.local/bin/kscreen-fix-priority.sh
+sudo mkdir -p /usr/lib/lor-display
+sudo cp usr/lib/lor-display/kscreen-fix-priority.sh usr/lib/lor-display/lor-display-common.sh \
+        /usr/lib/lor-display/
+sudo chmod 755 /usr/lib/lor-display/kscreen-fix-priority.sh
+ln -sf /usr/lib/lor-display/kscreen-fix-priority.sh ~/.local/bin/kscreen-fix-priority.sh
+# Optional: a DSI-1 scale other than the default 1.35 (1.0-1.75), applied at next boot:
+#   echo SCALE=1.5 > ~/.config/lor-display.conf
 # Both scripts need to run once per session at login. The autostart entries that
 # trigger them are part of our application packaging and aren't included here.
 
@@ -187,9 +196,9 @@ qdbus org.kde.kded5 /kded unloadModule kscreen
 
 The files under `home/lor/src/plasma-mobile/` are source patches, not deployable files as-is. Build and install `libmobileshellplugin.so` per [`build-libmobileshellplugin.md`](build-libmobileshellplugin.md).
 
-### 6. Rebuild the patched DWC I2S kernel module
+### 6. Install the patched DWC I2S kernel module (DKMS)
 
-The file under `home/lor/src/rpi-kernel-patches/dwc-build/` is a source patch, not a deployable file as-is. Build and install `designware_i2s.ko` per [`build-designware-i2s.md`](build-designware-i2s.md).
+The patched driver ships as the `lor-i2s-dkms` package. Build and install it from `home/lor/src/lor-i2s-dkms/` per [`build-designware-i2s.md`](build-designware-i2s.md); DKMS then rebuilds the module automatically on every kernel upgrade.
 
 ### 7. Rebuild the patched kscreen kded plugin
 

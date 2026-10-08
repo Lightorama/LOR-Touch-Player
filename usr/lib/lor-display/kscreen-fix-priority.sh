@@ -1,4 +1,9 @@
 #!/bin/bash
+# DSI-1 scale comes from ~/.config/lor-display.conf (default 1.35); see
+# lor-display-common.sh. Changing it requires a reboot.
+
+. /usr/lib/lor-display/lor-display-common.sh
+lor_display_load
 
 KSCREEN_DIR="$HOME/.local/share/kscreen"
 LOCK_FILE="/run/user/$(id -u)/kscreen-fix-live.lock"
@@ -8,10 +13,12 @@ rm -f "$READY_FILE"
 
 fix_file() {
     local file="$1"
-    python3 - "$file" <<'PYEOF'
+    python3 - "$file" "$SCALE" "$HDMI_X" <<'PYEOF'
 import json, sys
 
 path = sys.argv[1]
+scale = float(sys.argv[2])
+hdmi_x = int(sys.argv[3])
 try:
     with open(path) as f:
         data = json.load(f)
@@ -40,8 +47,8 @@ if dsi.get('rotation') != 8:
     dsi['rotation'] = 8
     changed = True
 
-if dsi.get('scale') != 1.35:
-    dsi['scale'] = 1.35
+if abs(float(dsi.get('scale') or 0) - scale) > 0.001:
+    dsi['scale'] = scale
     changed = True
 
 if dsi.get('pos', {}).get('x') != 0 or dsi.get('pos', {}).get('y') != 0:
@@ -50,8 +57,8 @@ if dsi.get('pos', {}).get('x') != 0 or dsi.get('pos', {}).get('y') != 0:
 
 hdmi = next((o for o in data if o.get('metadata', {}).get('name') == 'HDMI-A-1'), None)
 if hdmi is not None:
-    if hdmi.get('pos', {}).get('x') != 948 or hdmi.get('pos', {}).get('y') != 0:
-        hdmi['pos'] = {'x': 948, 'y': 0}
+    if hdmi.get('pos', {}).get('x') != hdmi_x or hdmi.get('pos', {}).get('y') != 0:
+        hdmi['pos'] = {'x': hdmi_x, 'y': 0}
         changed = True
 
 if not changed:
@@ -73,8 +80,7 @@ PYEOF
 # state. So: never name an output that isn't currently listed, and verify by
 # reading back stdout only, ignoring exit codes.
 dsi1_scale_ok() {
-    kscreen-doctor -o 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' |
-        grep 'DSI-1' | grep -q 'Scale: 1.35'
+    lor_display_state_scale_ok "$(lor_display_state)"
 }
 
 # One invocation = one atomic config apply (a single modeset). Back-to-back
@@ -87,9 +93,9 @@ fix_live() {
         local i state args
         for ((i = 1; i <= 5; i++)); do
             state=$(kscreen-doctor -o 2>/dev/null)
-            args=(output.DSI-1.rotation.right output.DSI-1.scale.1.35
+            args=(output.DSI-1.rotation.right "output.DSI-1.scale.$SCALE"
                 output.DSI-1.position.0,0)
-            [[ "$state" == *HDMI-A-1* ]] && args+=(output.HDMI-A-1.position.948,0)
+            [[ "$state" == *HDMI-A-1* ]] && args+=("output.HDMI-A-1.position.$HDMI_X,0")
             kscreen-doctor "${args[@]}" 2>/dev/null
             sleep 1
             if dsi1_scale_ok; then
@@ -97,7 +103,7 @@ fix_live() {
                 return 0
             fi
         done
-        echo "DSI-1 scale 1.35 did NOT stick after 5 attempts"
+        echo "DSI-1 scale $SCALE did NOT stick after 5 attempts"
         return 1
     ) 9>"$LOCK_FILE"
 }
@@ -151,7 +157,8 @@ SWEEPEOF
     for ((i = 0; i < 30; i++)); do
         state=$(kscreen-doctor -o 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
         if [[ -n "$state" ]]; then
-            if grep 'DSI-1' <<<"$state" | grep 'Scale: 1.35' | grep -q 'Rotation: 8'; then
+            if lor_display_state_scale_ok "$state" &&
+                grep 'DSI-1' <<<"$state" | grep -q 'Rotation: 8'; then
                 boot_ok=1
                 echo "DSI-1 already rotated/scaled at boot; ready immediately"
             fi

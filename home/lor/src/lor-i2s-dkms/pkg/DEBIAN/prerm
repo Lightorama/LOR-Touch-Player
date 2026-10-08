@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+NAME=lor-i2s
+VERSION=1.0.0
+case "$1" in
+    remove|upgrade|deconfigure)
+        if dkms status -m "$NAME" -v "$VERSION" 2>/dev/null | grep -q .; then
+            dkms remove -m "$NAME" -v "$VERSION" --all || true
+        fi
+        ;;
+esac
+exit 0

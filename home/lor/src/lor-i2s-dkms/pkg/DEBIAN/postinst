@@ -1,0 +1,40 @@
+#!/bin/sh
+# Build/install the module for every kernel with headers, retire the old
+# hand-installed dpkg-diverted module, and reload the driver if it is idle.
+set -e
+NAME=lor-i2s
+VERSION=1.0.0
+
+[ "$1" = configure ] || exit 0
+
+/usr/lib/dkms/common.postinst "$NAME" "$VERSION" /usr/share/"$NAME" "" "$2"
+
+# Earlier units got the patched module by hand: a local dpkg-divert of
+# kernel/sound/soc/dwc/designware_i2s.ko.xz to .distrib with the patched file
+# in its place. Put the stock file back (DKMS's updates/dkms copy wins anyway).
+dpkg-divert --list |
+sed -n 's|^local diversion of \(/lib/modules/[^/]*/kernel/sound/soc/dwc/designware_i2s\.ko\.xz\) to \(.*\)$|\1 \2|p' |
+while read -r orig div; do
+    if [ -e "$div" ]; then
+        rm -f "$orig"
+    fi
+    dpkg-divert --local --rename --remove "$orig" >/dev/null
+    echo "lor-i2s-dkms: removed old diversion of $orig"
+    depmod -a "$(echo "$orig" | cut -d/ -f4)" 2>/dev/null || true
+done
+
+# Reload now when nothing has the card open; otherwise it takes effect at reboot.
+running=$(uname -r)
+if modinfo -n -k "$running" designware_i2s 2>/dev/null | grep -q /updates/; then
+    if lsmod | grep -q '^designware_i2s ' &&
+       modprobe -r snd_soc_rpi_simple_soundcard designware_i2s 2>/dev/null; then
+        modprobe designware_i2s || true
+        modprobe snd_soc_rpi_simple_soundcard || true
+        echo "lor-i2s-dkms: patched designware_i2s loaded"
+    else
+        echo "lor-i2s-dkms: patched designware_i2s installed; reboot to load it"
+    fi
+else
+    echo "lor-i2s-dkms: WARNING: no patched module for $running (are its headers installed?)" >&2
+fi
+exit 0

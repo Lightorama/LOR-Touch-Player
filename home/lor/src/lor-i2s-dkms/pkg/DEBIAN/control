@@ -1,0 +1,15 @@
+Package: lor-i2s-dkms
+Version: 1.0.0
+Architecture: all
+Maintainer: Light-O-Rama <unknown@example.com>
+Depends: dkms (>= 3), linux-headers-rpi-2712, kmod
+Section: kernel
+Priority: optional
+Description: Patched RP1 DesignWare I2S driver for the HiFiBerry DAC (DKMS)
+ Fixes "Invalid argument" when opening the HiFiBerry DAC (pcm5102a) on
+ CM5/Pi 5: the DWC I2S driver never sets runtime->hw.info, so on RP1's
+ non-coherent DMA snd_pcm_open_substream builds an empty access mask and
+ fails with EINVAL. This package adds SNDRV_PCM_INFO_INTERLEAVED in
+ dw_i2s_startup(). DKMS rebuilds designware_i2s.ko for every new kernel, so
+ the fix survives kernel upgrades. Removes earlier hand-installed
+ dpkg-diverted copies of the module.
